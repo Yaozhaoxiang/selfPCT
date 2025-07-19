@@ -1,7 +1,3 @@
-"""
-Author: Benny
-Date: Nov 2019
-"""
 from torchvision.transforms import ToTensor
 
 from dataset import ModelNetDataLoader, CustomDataLoader
