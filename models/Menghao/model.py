@@ -2,22 +2,33 @@ import torch
 import torch.nn as nn
 from pointnet_util import farthest_point_sample, index_points, square_distance
 
+# xyz: [B, N, 3]       # 每个点的坐标（输入点云）
+# points: [B, N, C]    # 每个点的特征（如坐标、颜色、法线等）
+# npoint: int          # 要采样的点数 S
+# nsample: int         # 每个采样点的邻域中采样的点数 K
 
 def sample_and_group(npoint, nsample, xyz, points):
     B, N, C = xyz.shape
     S = npoint 
-    
+
+    # 使用 Farthest Point Sampling 从原始点集中选出 npoint 个分布均匀的“代表性点”。
     fps_idx = farthest_point_sample(xyz, npoint) # [B, npoint]
+    new_xyz = index_points(xyz, fps_idx) # [B, npoint, 3] 坐标
 
-    new_xyz = index_points(xyz, fps_idx) 
-    new_points = index_points(points, fps_idx)
+    new_points = index_points(points, fps_idx) # [B, npoint, C]
 
+    # 每个关键点计算它与所有点的欧式距离，并找到最近的 K 个邻居。
     dists = square_distance(new_xyz, xyz)  # B x npoint x N
     idx = dists.argsort()[:, :, :nsample]  # B x npoint x K
+    # 提取邻域内的点特征
+    grouped_points = index_points(points, idx) # [B, npoint, K, C]
+    # 相对特征：邻居点特征 - 中心点特征
+    grouped_points_norm = grouped_points - new_points.view(B, S, 1, -1)  # [B, npoint, K, C]
 
-    grouped_points = index_points(points, idx)
-    grouped_points_norm = grouped_points - new_points.view(B, S, 1, -1)
+    # 拼接相对特征 + 中心点特征 [B, S, K, 2C]
     new_points = torch.cat([grouped_points_norm, new_points.view(B, S, 1, -1).repeat(1, 1, nsample, 1)], dim=-1)
+    # new_xyz	采样后的 S 个关键点坐标	[B, S, 3]
+    # new_points	每个关键点邻域的 K 个点特征（相对特征 + 中心点复制）	[B, S, K, 2C]
     return new_xyz, new_points
 
 
@@ -131,29 +142,34 @@ class PointTransformerCls(nn.Module):
         self.dp2 = nn.Dropout(p=0.5)
         self.linear3 = nn.Linear(256, output_channels)
 
+    # x.shape = [B, N, C]，比如 B=32, N=1024, C=3
+    # 假设 cfg.input_dim = 3，cfg.num_class = 40（比如 ModelNet40 分类）。
     def forward(self, x):
-        xyz = x[..., :3]
-        x = x.permute(0, 2, 1)
+        xyz = x[..., :3] # 提取前三个特征维度 shape: [B, N, 3]
+        x = x.permute(0, 2, 1) # x: [B, C, N] => [B, 3, 1024]
         batch_size, _, _ = x.size()
-        x = self.relu(self.bn1(self.conv1(x))) # B, D, N
+        x = self.relu(self.bn1(self.conv1(x))) # B, D, N   [B, 3, 1024] → [B, 64, 1024]
         x = self.relu(self.bn2(self.conv2(x))) # B, D, N
-        x = x.permute(0, 2, 1)
-        new_xyz, new_feature = sample_and_group(npoint=512, nsample=32, xyz=xyz, points=x)         
-        feature_0 = self.gather_local_0(new_feature)
+        x = x.permute(0, 2, 1)   # [B, 1024, 64]
+
+
+        new_xyz, new_feature = sample_and_group(npoint=512, nsample=32, xyz=xyz, points=x)  # new_points.shape = [B, 512, 32, 64 + 64] = [B, 512, 32, 128]
+        feature_0 = self.gather_local_0(new_feature) # [B, 128, 512]
         feature = feature_0.permute(0, 2, 1)
-        new_xyz, new_feature = sample_and_group(npoint=256, nsample=32, xyz=new_xyz, points=feature) 
-        feature_1 = self.gather_local_1(new_feature)
+        new_xyz, new_feature = sample_and_group(npoint=256, nsample=32, xyz=new_xyz, points=feature) # new_feature = [B, 256, 32, 128 + 128] = [B, 256, 32, 256]
+        feature_1 = self.gather_local_1(new_feature)  # [B, 256, 256]
         
-        x = self.pt_last(feature_1)
-        x = torch.cat([x, feature_1], dim=1)
-        x = self.conv_fuse(x)
-        x = torch.max(x, 2)[0]
+        x = self.pt_last(feature_1) # [B, 4*256, 256] = [B, 1024, 256]
+
+        x = torch.cat([x, feature_1], dim=1)  # [B, 1024+256, 256] = [B, 1280, 256]
+        x = self.conv_fuse(x) # [B, 1280, 256] → [B, 1024, 256]
+        x = torch.max(x, 2)[0]  # [B, 1024]
         x = x.view(batch_size, -1)
 
-        x = self.relu(self.bn6(self.linear1(x)))
+        x = self.relu(self.bn6(self.linear1(x))) # [B, 512]
         x = self.dp1(x)
-        x = self.relu(self.bn7(self.linear2(x)))
+        x = self.relu(self.bn7(self.linear2(x))) # [B, 256]
         x = self.dp2(x)
-        x = self.linear3(x)
+        x = self.linear3(x) #[B, num_class]
 
         return x

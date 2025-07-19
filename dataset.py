@@ -7,30 +7,100 @@ import json
 
 
 class ModelNetDataLoader(Dataset):
+    # root	数据集根目录，如 modelnet40_normal_resampled/
+    # npoint	每个样本保留的点数（如 1024）
+    # split	    'train' 或 'test'
+    # uniform	是否使用 FPS（Farthest Point Sampling）
+    # normal_channel    是否使用法向量
+    # cache_size    内存缓存的数据数量，避免反复读取硬盘，提高效率
     def __init__(self, root, npoint=1024, split='train', uniform=False, normal_channel=True, cache_size=15000):
         self.root = root
         self.npoints = npoint
         self.uniform = uniform
-        self.catfile = os.path.join(self.root, 'modelnet40_shape_names.txt')
-
-        self.cat = [line.rstrip() for line in open(self.catfile)]
-        self.classes = dict(zip(self.cat, range(len(self.cat))))
         self.normal_channel = normal_channel
 
+        # 加载类别信息:
+        self.catfile = os.path.join(self.root, 'modelnet40_shape_names.txt') # 加载模型类别名（共 40 个）；
+        self.cat = [line.rstrip() for line in open(self.catfile)]
+        self.classes = dict(zip(self.cat, range(len(self.cat)))) # 类别名到整数标签的映射 {'airplane': 0, 'bathtub': 1, ..., 'xbox': 39}
+
+
+        # 加载训练/测试集划分信息:
         shape_ids = {}
-        shape_ids['train'] = [line.rstrip() for line in open(os.path.join(self.root, 'modelnet40_train.txt'))]
+        shape_ids['train'] = [line.rstrip() for line in open(os.path.join(self.root, 'modelnet40_train.txt'))] # 拿到每一行
         shape_ids['test'] = [line.rstrip() for line in open(os.path.join(self.root, 'modelnet40_test.txt'))]
 
+        # 构建核心数据路径列表 Self.datapath
         assert (split == 'train' or split == 'test')
-        shape_names = ['_'.join(x.split('_')[0:-1]) for x in shape_ids[split]]
+        shape_names = ['_'.join(x.split('_')[0:-1]) for x in shape_ids[split]]  # shape_names列表中的每个元素对应shape_ids[split]中样本 ID 的类别名称。
         # list of (shape_name, shape_txt_file_path) tuple
         self.datapath = [(shape_names[i], os.path.join(self.root, shape_names[i], shape_ids[split][i]) + '.txt') for i
                          in range(len(shape_ids[split]))]
         print('The size of %s data is %d'%(split,len(self.datapath)))
 
+
+        # 初始化缓存:
         self.cache_size = cache_size  # how many data points to cache in memory
         self.cache = {}  # from index to (point_set, cls) tuple
 
+    def __len__(self):
+        return len(self.datapath)  # 返回数据集中样本总数
+
+    def _get_item(self, index):
+        if index in self.cache:
+            point_set, cls = self.cache[index]
+        else:
+            fn = self.datapath[index]
+            cls = self.classes[self.datapath[index][0]]  # 获取类别编号
+            cls = np.array([cls]).astype(np.int32)
+            point_set = np.loadtxt(fn[1], delimiter=',').astype(np.float32)
+            if self.uniform:
+                point_set = farthest_point_sample(point_set, self.npoints)
+            else:
+                point_set = point_set[0:self.npoints,:]
+
+            # 归一化 (Normalization):
+            point_set[:, 0:3] = pc_normalize(point_set[:, 0:3])
+
+            if not self.normal_channel:
+                point_set = point_set[:, 0:3]
+
+            if len(self.cache) < self.cache_size:
+                self.cache[index] = (point_set, cls)
+
+        return point_set, cls
+
+    def __getitem__(self, index):
+        return self._get_item(index)
+
+
+# 建议重命名此类
+class CustomDataLoader(Dataset):
+    def __init__(self, root, npoint=1024, split='train', uniform=False, normal_channel=False, cache_size=15000):
+        self.root = root
+        self.npoints = npoint
+        self.uniform = uniform
+        self.catfile = os.path.join(self.root, 'shape_names.txt')  # <<< 修改点 1
+        self.normal_channel = normal_channel
+
+        self.cat = [line.rstrip() for line in open(self.catfile)]
+        self.classes = dict(zip(self.cat, range(len(self.cat))))
+
+        shape_ids = {}
+        shape_ids['train'] = [line.rstrip() for line in open(os.path.join(self.root, 'train.txt'))]  # <<< 修改点 2
+        shape_ids['test'] = [line.rstrip() for line in open(os.path.join(self.root, 'test.txt'))]  # <<< 修改点 3
+
+        assert (split == 'train' or split == 'test')
+        # 后面的代码完全不需要修改，因为您的文件命名和文件夹结构与它的逻辑是兼容的！
+        shape_names = ['_'.join(x.split('_')[0:-1]) for x in shape_ids[split]]
+        self.datapath = [(shape_names[i], os.path.join(self.root, shape_names[i], shape_ids[split][i]) + '.txt') for i
+                         in range(len(shape_ids[split]))]
+        print('The size of %s data is %d' % (split, len(self.datapath)))
+
+        self.cache_size = cache_size
+        self.cache = {}
+
+    # __len__ 和 __getitem__ 方法完全不需要修改，可以直接复制过来
     def __len__(self):
         return len(self.datapath)
 
@@ -41,13 +111,36 @@ class ModelNetDataLoader(Dataset):
             fn = self.datapath[index]
             cls = self.classes[self.datapath[index][0]]
             cls = np.array([cls]).astype(np.int32)
-            point_set = np.loadtxt(fn[1], delimiter=',').astype(np.float32)
-            if self.uniform:
-                point_set = farthest_point_sample(point_set, self.npoints)
-            else:
-                point_set = point_set[0:self.npoints,:]
+            point_set = np.loadtxt(fn[1]).astype(np.float32)
 
-            point_set[:, 0:3] = pc_normalize(point_set[:, 0:3])
+            # 模型中已经有了 knn，所有这里只是对数据进行将采样。样本大概280000 -> 15000 参考net40
+            Npoint = 15000
+            if point_set.shape[0] > Npoint:
+                # 使用最简单高效的随机采样
+                # replace=False 确保不会重复采样同一个点
+                choice_indices = np.random.choice(point_set.shape[0], Npoint, replace=False)
+                point_set = point_set[choice_indices, :]
+
+            # 如果点数不足，可以进行重复采样以补足
+            elif point_set.shape[0] < Npoint:
+                choice_indices = np.random.choice(point_set.shape[0], Npoint, replace=True)
+                point_set = point_set[choice_indices, :]
+
+
+            # 假设您的数据没有法向量，如果有点云是6列，这部分逻辑就需要保留
+            # 如果您的.txt就是 x,y,z三列，那么normal_channel可以一直设为False
+            # 采样点
+            if self.uniform:
+                # 这里需要您提供 farthest_point_sample 函数
+                # point_set = farthest_point_sample(point_set, Self.npoints)
+                # 暂时先用普通采样代替
+                indices = np.random.choice(point_set.shape[0], self.npoints, replace=True)
+                point_set = point_set[indices, :]
+            else:
+                point_set = point_set[0:self.npoints, :]
+
+            # 归一化 (需要您提供 pc_normalize 函数)
+            # point_set[:, 0:3] = pc_normalize(point_set[:, 0:3])
 
             if not self.normal_channel:
                 point_set = point_set[:, 0:3]
@@ -79,7 +172,7 @@ class PartNormalDataset(Dataset):
 
         if not class_choice is  None:
             self.cat = {k:v for k,v in self.cat.items() if k in class_choice}
-        # print(self.cat)
+        # print(Self.cat)
 
         self.meta = {}
         with open(os.path.join(self.root, 'train_test_split', 'shuffled_train_file_list.json'), 'r') as f:
@@ -127,8 +220,8 @@ class PartNormalDataset(Dataset):
                             'Table': [47, 48, 49], 'Airplane': [0, 1, 2, 3], 'Pistol': [38, 39, 40],
                             'Chair': [12, 13, 14, 15], 'Knife': [22, 23]}
 
-        # for cat in sorted(self.seg_classes.keys()):
-        #     print(cat, self.seg_classes[cat])
+        # for cat in sorted(Self.seg_classes.keys()):
+        #     print(cat, Self.seg_classes[cat])
 
         self.cache = {}  # from index to (point_set, cls, seg) tuple
         self.cache_size = 20000
@@ -164,7 +257,7 @@ class PartNormalDataset(Dataset):
 
 
 if __name__ == '__main__':
-    data = ModelNetDataLoader('modelnet40_normal_resampled/', split='train', uniform=False, normal_channel=True)
+    data = CustomDataLoader('E:/data/self_data', split='train', uniform=False, normal_channel=True)
     DataLoader = torch.utils.data.DataLoader(data, batch_size=12, shuffle=True)
     for point,label in DataLoader:
         print(point.shape)
