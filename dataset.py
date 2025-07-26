@@ -111,7 +111,8 @@ class CustomDataLoader(Dataset):
             fn = self.datapath[index]
             cls = self.classes[self.datapath[index][0]]
             cls = np.array([cls]).astype(np.int32)
-            point_set = np.loadtxt(fn[1]).astype(np.float32)
+            # point_set = np.loadtxt(fn[1]).astype(np.float32)
+            point_set = np.loadtxt(fn[1], delimiter=',').astype(np.float32)
 
             # 模型中已经有了 knn，所有这里只是对数据进行将采样。样本大概280000 -> 15000 参考net40
             Npoint = 15000

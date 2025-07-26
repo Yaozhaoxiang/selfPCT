@@ -10,10 +10,10 @@ from scipy.spatial import ConvexHull
 # --- 1. 配置区域 (请根据您的设置修改) ---
 # ==============================================================================
 # 输入文件夹：存放您所有标准样本的地方
-INPUT_DIR = "E:\data\self_data\std"
+INPUT_DIR = "H:\data\self_data\std"
 
 # 基础输出文件夹：所有生成的缺陷文件夹将创建在这里
-BASE_OUTPUT_DIR = "E://data//add_data"
+BASE_OUTPUT_DIR = "H://data//add_data"
 
 # 每种缺陷的参数范围，您可以在这里微调以获得想要的效果
 DENT_BUMP_RADIUS_RANGE = (10.0, 25.0)

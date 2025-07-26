@@ -342,31 +342,36 @@ class PointTransformerCls(nn.Module):
         )
 
         # 堆叠多个层次化的 SG-Trans 模块，构成网络主干
-        # Stage 1: 1024 -> 512 points, 64 -> 128 channels (保持不变)
-        self.stage1 = SG_Trans_Block_V2(npoint=2048, nsample=64, in_channels=64, out_channels=128, key_channels=32,
+        # Stage 1: 2048 -> 2048 points, 64 -> 256 channels
+        self.stage1 = SG_Trans_Block_V2(npoint=2048, nsample=64, in_channels=64, out_channels=256, key_channels=64,
                                      pool_ratio=4, ffn_expand_ratio=4)
 
-        # 修改点 1: Stage 2 的输出通道从 256 改为 128
-        # 为了保持内部比例，我们将 key_channels 也从 64 减半为 32
-        self.stage2 = SG_Trans_Block_V2(npoint=1024, nsample=64, in_channels=128, out_channels=128, key_channels=32,
+        # Stage 2: 2048 -> 1024 points, 256 -> 256 channels
+        self.stage2 = SG_Trans_Block_V2(npoint=1024, nsample=64, in_channels=256, out_channels=256, key_channels=64,
                                      pool_ratio=4, ffn_expand_ratio=4)
 
-        # 修改点 2: Stage 3 的输入通道必须从 256 改为 128 (以匹配 stage2 的输出)
-        # 我们将其输出通道从 512 减半为 256，key_channels 从 128 减半为 64
-        self.stage3 = SG_Trans_Block_V2(npoint=512, nsample=64, in_channels=128, out_channels=256, key_channels=64,
+        # Stage 3 (您新增的层): 1024 -> 512 points, 256 -> 256 channels
+        # 作用：在1024点的尺度上，进行更深层次的特征提炼
+        self.stage3 = SG_Trans_Block_V2(npoint=512, nsample=64, in_channels=256, out_channels=256, key_channels=64,
                                      pool_ratio=4, ffn_expand_ratio=4)
 
-        # 修改点 3: 分类头的输入维度现在是 256 (来自 stage3 的输出)
+        # Stage 4 (原来的stage3): 512 -> 256 points, 256 -> 256 channels
+        self.stage4 = SG_Trans_Block_V2(npoint=256, nsample=64, in_channels=256, out_channels=256, key_channels=64,
+                                     pool_ratio=4, ffn_expand_ratio=4)
+
+        # 分类头的输入维度现在是 256 * 4 = 1024
+        fused_feature_dim = 256 * 4
+
         self.classifier = nn.Sequential(
-            nn.Linear(256, 256),
+            nn.Linear(fused_feature_dim, 512),
+            nn.BatchNorm1d(512),
+            nn.ReLU(inplace=True),
+            nn.Dropout(0.5),
+            nn.Linear(512, 256),
             nn.BatchNorm1d(256),
             nn.ReLU(inplace=True),
             nn.Dropout(0.5),
-            nn.Linear(256, 128),
-            nn.BatchNorm1d(128),
-            nn.ReLU(inplace=True),
-            nn.Dropout(0.5),
-            nn.Linear(128, num_class)
+            nn.Linear(256, num_class)
         )
 
     def forward(self, x):
@@ -380,28 +385,31 @@ class PointTransformerCls(nn.Module):
         features = x.permute(0, 2, 1)  # 现在 features 的形状是 [16, 3, 2048]
         features = self.stem(features)  # 输入 [B, 3, 2048] -> 输出 [B, 64, 2048]
 
-        # 2. 通过层次化主干网络
-        xyz, features = self.stage1(xyz, features)  # xyz: [B, 512, 3], features: [B, 128, 512]
-        xyz, features = self.stage2(xyz, features)  # xyz: [B, 256, 3], features: [B, 256, 256]
-        xyz, features = self.stage3(xyz, features)  # xyz: [B, 128, 3], features: [B, 512, 128]
+        # --- 通过层次化主干网络，并保存每个阶段的输出 ---
+        xyz1, features1 = self.stage1(xyz, features)  # -> features1: [B, 256, 512]
+        xyz2, features2 = self.stage2(xyz1, features1)  # -> features2: [B, 256, 256]
+        xyz3, features3 = self.stage3(xyz2, features2)  # -> features3: [B, 256, 128]
+        xyz4, features4 = self.stage4(xyz3, features3)  # -> features4: [B, 256, 64]
 
-        # 3. 全局池化
-        # 对最终输出的128个点的特征进行最大池化，得到全局特征
-        global_feature = torch.max(features, 2)[0]  # [B, 256]
+        # --- 对每个阶段的输出进行全局池化 ---
+        global_feat1 = torch.max(features1, 2)[0]  # [B, 256]
+        global_feat2 = torch.max(features2, 2)[0]  # [B, 256]
+        global_feat3 = torch.max(features3, 2)[0]  # [B, 256]
+        global_feat4 = torch.max(features4, 2)[0]  # [B, 256]
 
-        # 4. 分类
-        logits = self.classifier(global_feature)
+        # --- 将所有全局特征拼接起来 ---
+        fused_global_feature = torch.cat([global_feat1, global_feat2, global_feat3, global_feat4], dim=1)  # [B, 1024]
+
+        # --- 分类 ---
+        logits = self.classifier(fused_global_feature)
 
         return logits
 
 
 # --- 使用示例 ---
 if __name__ == '__main__':
-    # 粘贴所有依赖的模块定义在这里...
-    # SA_Layer_Efficient_Offset, Point_AttnConv_Complete, etc.
-
-    # 创建一个模拟的点云数据
-    dummy_input = torch.rand(2, 3, 1024)
+    # 假设输入点云有1024个点
+    dummy_input = torch.rand(2, 1024, 3)
 
     # 实例化模型
     model = PointTransformerCls(num_class=40)
@@ -409,7 +417,7 @@ if __name__ == '__main__':
     # 前向传播
     output_logits = model(dummy_input)
 
-    print("模型所有模块已成功组装并通过测试！")
+    print("宽体融合版模型已成功组装并通过测试！")
     print("输入形状:", dummy_input.shape)
     print("输出Logits形状:", output_logits.shape)
     # 预期输出: torch.Size([2, 40])

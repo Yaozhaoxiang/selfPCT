@@ -7,12 +7,16 @@ optimizer: Adam
 weight_decay: 1e-4
 normal: False
 
+# 默认配置
 defaults:
   - model: Self
+  - _self_
 
 hydra:
   run:
     dir: log/cls/${model.name}
+  job:
+    chdir: True
 
   sweep:
     dir: log/cls

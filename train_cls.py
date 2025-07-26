@@ -17,6 +17,7 @@ import shutil
 import hydra
 import omegaconf
 import time
+import torchvision.models as models
 
 from utils.visualizer import plot_confusion_matrix
 from utils.weight import compute_class_weights
@@ -96,7 +97,9 @@ def main(args):
 
     '''DATA LOADING'''
     logger.info('Load dataset ...')
-    DATA_PATH = hydra.utils.to_absolute_path('E:/data/self_data')
+    DATA_PATH = hydra.utils.to_absolute_path('H:\\data\\self_data')
+    DATA_PATH = hydra.utils.to_absolute_path('H:\BaiduNetdiskDownload\modelnet40\modelnet40_normal_resampled')
+
 
     # TRAIN_DATASET = ModelNetDataLoader(root=DATA_PATH, npoint=args.num_point, split='train', normal_channel=args.normal)
     # TEST_DATASET = ModelNetDataLoader(root=DATA_PATH, npoint=args.num_point, split='test', normal_channel=args.normal)
@@ -108,7 +111,7 @@ def main(args):
     testDataLoader = torch.utils.data.DataLoader(TEST_DATASET, batch_size=args.batch_size, shuffle=False, num_workers=4)
 
     '''MODEL LOADING'''
-    args.num_class = 7
+    args.num_class = 40
     args.input_dim = 6 if args.normal else 3
     shutil.copy(hydra.utils.to_absolute_path('models/{}/model.py'.format(args.model.name)), '.') # 拷贝模型代码
 
@@ -122,7 +125,10 @@ def main(args):
     print(f"模型所在设备: {next(classifier.parameters()).device}")
 
     try:
-        checkpoint = torch.load('best_model.pth')
+        model = models.resnet18()
+        checkpoint = torch.load('best_model.pth', weights_only=True)
+        model.load_state_dict(checkpoint)
+        # checkpoint = torch.load('best_model.pth')
         start_epoch = checkpoint['epoch']
         classifier.load_state_dict(checkpoint['model_state_dict'])
         logger.info('Use pretrain model')
@@ -153,8 +159,9 @@ def main(args):
 
     # --- TensorBoard 初始化 ---
     # 创建一个 writer 对象，日志将保存在 'runs/cls_experiment_1' 类似的文件夹中
-    # 每次运行时，它会自动创建一个新的、带时间戳的子文件夹，方便区分
-    log_dir = f'runs/exp_{time.strftime("%Y%m%d_%H%M%S")}'
+
+    hydra_run_dir = os.getcwd()
+    log_dir = os.path.join(hydra_run_dir, "runs", f"exp_{time.strftime('%Y%m%d_%H%M%S')}")
     writer = SummaryWriter(log_dir)
 
     # --- 记录模型图 ---
