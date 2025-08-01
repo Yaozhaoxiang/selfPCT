@@ -74,7 +74,7 @@ class ModelNetDataLoader(Dataset):
         return self._get_item(index)
 
 
-# 建议重命名此类
+
 class CustomDataLoader(Dataset):
     def __init__(self, root, npoint=1024, split='train', uniform=False, normal_channel=False, cache_size=15000):
         self.root = root
@@ -91,7 +91,7 @@ class CustomDataLoader(Dataset):
         shape_ids['test'] = [line.rstrip() for line in open(os.path.join(self.root, 'test.txt'))]  # <<< 修改点 3
 
         assert (split == 'train' or split == 'test')
-        # 后面的代码完全不需要修改，因为您的文件命名和文件夹结构与它的逻辑是兼容的！
+
         shape_names = ['_'.join(x.split('_')[0:-1]) for x in shape_ids[split]]
         self.datapath = [(shape_names[i], os.path.join(self.root, shape_names[i], shape_ids[split][i]) + '.txt') for i
                          in range(len(shape_ids[split]))]
@@ -114,40 +114,39 @@ class CustomDataLoader(Dataset):
             # point_set = np.loadtxt(fn[1]).astype(np.float32)
             point_set = np.loadtxt(fn[1], delimiter=',').astype(np.float32)
 
-            # 模型中已经有了 knn，所有这里只是对数据进行将采样。样本大概280000 -> 15000 参考net40
-            Npoint = 15000
-            if point_set.shape[0] > Npoint:
-                # 使用最简单高效的随机采样
-                # replace=False 确保不会重复采样同一个点
-                choice_indices = np.random.choice(point_set.shape[0], Npoint, replace=False)
-                point_set = point_set[choice_indices, :]
+            # 归一化
+            point_set[:, 0:3] = pc_normalize(point_set[:, 0:3])
 
-            # 如果点数不足，可以进行重复采样以补足
-            elif point_set.shape[0] < Npoint:
-                choice_indices = np.random.choice(point_set.shape[0], Npoint, replace=True)
-                point_set = point_set[choice_indices, :]
-
+            # # 模型中已经有了 knn，所有这里只是对数据进行将采样。样本大概280000 -> 15000 参考net40
+            # Npoint = 15000
+            # if point_set.shape[0] > Npoint:
+            #     # 使用最简单高效的随机采样
+            #     # replace=False 确保不会重复采样同一个点
+            #     choice_indices = np.random.choice(point_set.shape[0], Npoint, replace=False)
+            #     point_set = point_set[choice_indices, :]
+            #
+            # # 如果点数不足，可以进行重复采样以补足
+            # elif point_set.shape[0] < Npoint:
+            #     choice_indices = np.random.choice(point_set.shape[0], Npoint, replace=True)
+            #     point_set = point_set[choice_indices, :]
 
             # 假设您的数据没有法向量，如果有点云是6列，这部分逻辑就需要保留
             # 如果您的.txt就是 x,y,z三列，那么normal_channel可以一直设为False
-            # 采样点
-            if self.uniform:
-                # 这里需要您提供 farthest_point_sample 函数
-                # point_set = farthest_point_sample(point_set, Self.npoints)
-                # 暂时先用普通采样代替
-                indices = np.random.choice(point_set.shape[0], self.npoints, replace=True)
-                point_set = point_set[indices, :]
-            else:
-                point_set = point_set[0:self.npoints, :]
-
-            # 归一化 (需要您提供 pc_normalize 函数)
-            # point_set[:, 0:3] = pc_normalize(point_set[:, 0:3])
-
             if not self.normal_channel:
                 point_set = point_set[:, 0:3]
 
             if len(self.cache) < self.cache_size:
                 self.cache[index] = (point_set, cls)
+
+            # 采样点
+            if self.uniform:
+                # 这里需要您提供 farthest_point_sample 函数
+                # point_set = farthest_point_sample(point_set, Self.npoints)
+                indices = np.random.choice(point_set.shape[0], self.npoints, replace=True)
+                point_set = point_set[indices, :]
+            else:
+                choice = np.random.choice(len(point_set), self.npoints, replace=len(point_set) < self.npoints)
+                point_set = point_set[choice, :]
 
         return point_set, cls
 
