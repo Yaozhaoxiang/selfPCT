@@ -39,7 +39,6 @@ def test(model, loader, criterion, num_class=7):
 
     # --- 优化点：将模型评估模式的切换移到循环外 ---
     model.eval()
-
     for j, data in tqdm(enumerate(loader), total=len(loader), desc="Testing"):
         points, target = data
         target = target[:, 0]
@@ -183,7 +182,9 @@ def main(args):
     logger.info('Start training...')
     for epoch in range(start_epoch,args.epoch):
         logger.info('Epoch %d (%d/%s):' % (global_epoch + 1, epoch + 1, args.epoch))
-        
+
+        epoch_train_loss = 0.0
+
         classifier.train()
         for batch_id, data in tqdm(enumerate(trainDataLoader, 0), total=len(trainDataLoader), smoothing=0.9):
             # 数据增强
@@ -201,6 +202,8 @@ def main(args):
             pred = classifier(points) # 前向传播
             loss = criterion(pred, target.long()) # 计算损失
 
+            epoch_train_loss += loss.item()
+
             loss.backward() # 反向传播
             optimizer.step() # 更新权重
 
@@ -217,6 +220,10 @@ def main(args):
                 writer.add_scalar('Loss/Train', loss.item(), global_step)
             
         scheduler.step() # 更新学习率
+        # --- 新增：计算并记录Epoch级别的平均训练损失 ---
+        avg_train_loss = epoch_train_loss / len(trainDataLoader)
+        writer.add_scalar('Loss/Train_Epoch', avg_train_loss, epoch)
+
         # 计算并打印当前 epoch 在训练集上的平均准确率。
         train_instance_acc = np.mean(mean_correct)
         logger.info('Train Instance Accuracy: %f' % train_instance_acc)
