@@ -111,26 +111,24 @@ class CustomDataLoader(Dataset):
             fn = self.datapath[index]
             cls = self.classes[self.datapath[index][0]]
             cls = np.array([cls]).astype(np.int32)
-            # point_set = np.loadtxt(fn[1]).astype(np.float32)
-            point_set = np.loadtxt(fn[1], delimiter=',').astype(np.float32)
+            with open(fn[1], 'r') as f:
+                first_line = f.readline()
+                delimiter = ',' if ',' in first_line else None
+            point_set = np.loadtxt(fn[1], delimiter=delimiter).astype(np.float32)
+
+            # --- 新增的预采样步骤 ---
+            # 设定一个中间点数，这个值应远大于模型输入，但远小于原始点数
+            PRE_SAMPLED_POINTS = 16384  # (16 * 1024), 这是一个常用的中间值
+
+            if point_set.shape[0] > PRE_SAMPLED_POINTS:
+                # 使用最高效的随机采样，快速将点云降到一个可控规模
+                choice_indices = np.random.choice(point_set.shape[0], PRE_SAMPLED_POINTS, replace=False)
+                point_set = point_set[choice_indices, :]
 
             # 归一化
             point_set[:, 0:3] = pc_normalize(point_set[:, 0:3])
 
-            # # 模型中已经有了 knn，所有这里只是对数据进行将采样。样本大概280000 -> 15000 参考net40
-            # Npoint = 15000
-            # if point_set.shape[0] > Npoint:
-            #     # 使用最简单高效的随机采样
-            #     # replace=False 确保不会重复采样同一个点
-            #     choice_indices = np.random.choice(point_set.shape[0], Npoint, replace=False)
-            #     point_set = point_set[choice_indices, :]
-            #
-            # # 如果点数不足，可以进行重复采样以补足
-            # elif point_set.shape[0] < Npoint:
-            #     choice_indices = np.random.choice(point_set.shape[0], Npoint, replace=True)
-            #     point_set = point_set[choice_indices, :]
-
-            # 假设您的数据没有法向量，如果有点云是6列，这部分逻辑就需要保留
+            # 如果有点云是6列，这部分逻辑就需要保留
             # 如果您的.txt就是 x,y,z三列，那么normal_channel可以一直设为False
             if not self.normal_channel:
                 point_set = point_set[:, 0:3]
@@ -235,7 +233,7 @@ class PartNormalDataset(Dataset):
             cat = self.datapath[index][0]
             cls = self.classes[cat]
             cls = np.array([cls]).astype(np.int32)
-            data = np.loadtxt(fn[1]).astype(np.float32)
+            data = np.loadtxt(fn[1], delimiter=',').astype(np.float32)
             if not self.normal_channel:
                 point_set = data[:, 0:3]
             else:

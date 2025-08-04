@@ -97,8 +97,8 @@ def main(args):
 
     '''DATA LOADING'''
     logger.info('Load dataset ...')
-    DATA_PATH = hydra.utils.to_absolute_path('H:\\data\\self_data')
-    DATA_PATH = hydra.utils.to_absolute_path('H:\BaiduNetdiskDownload\modelnet40\modelnet40_normal_resampled')
+    DATA_PATH = hydra.utils.to_absolute_path('D:\\yzx\\self_data_v2')
+    # DATA_PATH = hydra.utils.to_absolute_path('H:\BaiduNetdiskDownload\modelnet40\modelnet40_normal_resampled')
 
 
     # TRAIN_DATASET = ModelNetDataLoader(root=DATA_PATH, npoint=args.num_point, split='train', normal_channel=args.normal)
@@ -111,7 +111,7 @@ def main(args):
     testDataLoader = torch.utils.data.DataLoader(TEST_DATASET, batch_size=args.batch_size, shuffle=False, num_workers=4)
 
     '''MODEL LOADING'''
-    args.num_class = 40
+    args.num_class = 7
     args.input_dim = 6 if args.normal else 3
     shutil.copy(hydra.utils.to_absolute_path('models/{}/model.py'.format(args.model.name)), '.') # 拷贝模型代码
 
@@ -183,7 +183,8 @@ def main(args):
     logger.info('Start training...')
     for epoch in range(start_epoch,args.epoch):
         logger.info('Epoch %d (%d/%s):' % (global_epoch + 1, epoch + 1, args.epoch))
-        
+        epoch_train_loss = 0.0
+
         classifier.train()
         for batch_id, data in tqdm(enumerate(trainDataLoader, 0), total=len(trainDataLoader), smoothing=0.9):
             # 数据增强
@@ -200,6 +201,7 @@ def main(args):
 
             pred = classifier(points) # 前向传播
             loss = criterion(pred, target.long()) # 计算损失
+            epoch_train_loss += loss.item()
 
             loss.backward() # 反向传播
             optimizer.step() # 更新权重
@@ -220,6 +222,10 @@ def main(args):
         # 计算并打印当前 epoch 在训练集上的平均准确率。
         train_instance_acc = np.mean(mean_correct)
         logger.info('Train Instance Accuracy: %f' % train_instance_acc)
+
+        # --- 新增：计算并记录Epoch级别的平均训练损失 ---
+        avg_train_loss = epoch_train_loss / len(trainDataLoader)
+        writer.add_scalar('Loss/Train_Epoch', avg_train_loss, epoch)
 
         # --- TensorBoard 记录点 --- 平均训练准确率，学习率
         writer.add_scalar('Accuracy/Train', train_instance_acc, epoch)
