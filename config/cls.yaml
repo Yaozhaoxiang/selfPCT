@@ -6,10 +6,12 @@ num_point: 2048
 optimizer: Adam
 weight_decay: 1e-4
 normal: False
-ablation_cfg: ablation_cfg_b
+ablation_cfg:
+  use_local: false
+
 # 默认配置
 defaults:
-  - model: Self
+  - model: SelfXiaoRong
   - _self_
 
 hydra:

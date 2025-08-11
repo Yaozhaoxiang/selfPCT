@@ -307,18 +307,29 @@ class PointTransformerCls(nn.Module):
             nn.Linear(256, num_class))
 
     def forward(self, x):
-        xyz = x.permute(0, 2, 1)  # 假设输入是 [B, C, N]
-        features = self.stem(x)
+        # 1. 保留原始形状的点云用于几何操作 (如 sample_and_group)
+        xyz = x  # xyz shape is [B, N, C]
 
+        # 2. 将 x 的维度重排以适应卷积层
+        # from [B, N, C] -> [B, C, N]
+        features = x.permute(0, 2, 1)  # features shape is now [B, C, N]
+
+        # 3. 将正确形状的张量送入 stem
+        features = self.stem(features)  # Input [B, C, N] -> Output [B, 64, N]
+
+        # 4. 依次通过层次化主干网络
         xyz1, features1 = self.stage1(xyz, features)
         xyz2, features2 = self.stage2(xyz1, features1)
         xyz3, features3 = self.stage3(xyz2, features2)
 
+        # 5. 多尺度特征融合
         global_feat1 = torch.max(features1, 2)[0]
         global_feat2 = torch.max(features2, 2)[0]
         global_feat3 = torch.max(features3, 2)[0]
 
         fused_global_feature = torch.cat([global_feat1, global_feat2, global_feat3], dim=1)
+
+        # 6. 分类
         logits = self.classifier(fused_global_feature)
         return logits
 
