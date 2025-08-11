@@ -30,7 +30,7 @@ class ModelNetDataLoader(Dataset):
         shape_ids['train'] = [line.rstrip() for line in open(os.path.join(self.root, 'modelnet40_train.txt'))] # 拿到每一行
         shape_ids['test'] = [line.rstrip() for line in open(os.path.join(self.root, 'modelnet40_test.txt'))]
 
-        # 构建核心数据路径列表 Self.datapath
+        # 构建核心数据路径列表 Self-2.datapath
         assert (split == 'train' or split == 'test')
         shape_names = ['_'.join(x.split('_')[0:-1]) for x in shape_ids[split]]  # shape_names列表中的每个元素对应shape_ids[split]中样本 ID 的类别名称。
         # list of (shape_name, shape_txt_file_path) tuple
@@ -139,7 +139,7 @@ class CustomDataLoader(Dataset):
             # 采样点
             if self.uniform:
                 # 这里需要您提供 farthest_point_sample 函数
-                # point_set = farthest_point_sample(point_set, Self.npoints)
+                # point_set = farthest_point_sample(point_set, Self-2.npoints)
                 indices = np.random.choice(point_set.shape[0], self.npoints, replace=True)
                 point_set = point_set[indices, :]
             else:
@@ -170,7 +170,7 @@ class PartNormalDataset(Dataset):
 
         if not class_choice is  None:
             self.cat = {k:v for k,v in self.cat.items() if k in class_choice}
-        # print(Self.cat)
+        # print(Self-2.cat)
 
         self.meta = {}
         with open(os.path.join(self.root, 'train_test_split', 'shuffled_train_file_list.json'), 'r') as f:
@@ -218,8 +218,8 @@ class PartNormalDataset(Dataset):
                             'Table': [47, 48, 49], 'Airplane': [0, 1, 2, 3], 'Pistol': [38, 39, 40],
                             'Chair': [12, 13, 14, 15], 'Knife': [22, 23]}
 
-        # for cat in sorted(Self.seg_classes.keys()):
-        #     print(cat, Self.seg_classes[cat])
+        # for cat in sorted(Self-2.seg_classes.keys()):
+        #     print(cat, Self-2.seg_classes[cat])
 
         self.cache = {}  # from index to (point_set, cls, seg) tuple
         self.cache_size = 20000

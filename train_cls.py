@@ -116,7 +116,7 @@ def main(args):
     shutil.copy(hydra.utils.to_absolute_path('models/{}/model.py'.format(args.model.name)), '.') # 拷贝模型代码
 
     # 类名必须是 PointTransformerCls
-    classifier = getattr(importlib.import_module('models.{}.model'.format(args.model.name)), 'PointTransformerCls')(args).cuda()
+    classifier = getattr(importlib.import_module('models.{}.model'.format(args.model.name)), 'PointTransformerCls')(args, ).cuda()
     class_weights = compute_class_weights(TRAIN_DATASET)
     criterion = torch.nn.CrossEntropyLoss(
         weight=class_weights,

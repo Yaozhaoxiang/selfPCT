@@ -1,5 +1,13 @@
-numpy
+numpy~=2.0.1
 torch
-tqdm
+tqdm~=4.66.5
 hydra-core==1.2
-omegaconf
+omegaconf~=2.3.0
+
+scipy~=1.13.1
+pandas~=2.2.3
+matplotlib~=3.9.4
+seaborn~=0.13.2
+pillow~=11.3.0
+scikit-learn~=1.6.1
+torchvision~=0.20.1
